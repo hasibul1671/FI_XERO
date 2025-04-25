@@ -1,0 +1,6 @@
+[submodule "Illuminance Commons"]
+	path = Illuminance Commons
+	url = https://illuminance.visualstudio.com/DefaultCollection/Illuminance%20Reusables/_git/Illuminance%20Commons
+[submodule "FinanceIntegration/FinanceIntegration/Illuminance%20Commons"]
+	path = FinanceIntegration/FinanceIntegration/Illuminance%20Commons
+	url = https://illuminance.visualstudio.com/DefaultCollection/Illuminance%20Reusables/_git/Illuminance%20Commons

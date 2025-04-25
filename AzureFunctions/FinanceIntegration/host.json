@@ -1,0 +1,5 @@
+{
+  "serviceBus": {
+    "maxConcurrentCalls": 1 
+  }
+}

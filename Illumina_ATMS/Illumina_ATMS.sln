@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27428.1
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PluginsWorkflows", "PluginsWorkflows\PluginsWorkflows.csproj", "{280F5FBF-0D3E-4948-85E6-CFF3983FEB7E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PluginTests", "PluginTests\PluginTests.csproj", "{D8F62F89-0530-426C-965C-4D1DF975680A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{280F5FBF-0D3E-4948-85E6-CFF3983FEB7E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{280F5FBF-0D3E-4948-85E6-CFF3983FEB7E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{280F5FBF-0D3E-4948-85E6-CFF3983FEB7E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{280F5FBF-0D3E-4948-85E6-CFF3983FEB7E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D8F62F89-0530-426C-965C-4D1DF975680A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D8F62F89-0530-426C-965C-4D1DF975680A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D8F62F89-0530-426C-965C-4D1DF975680A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D8F62F89-0530-426C-965C-4D1DF975680A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A08E9417-BDA0-4831-8B2A-C7B81AD279A5}
+	EndGlobalSection
+EndGlobal
