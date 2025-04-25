@@ -28,7 +28,7 @@ namespace FinanceIntegration.Model.Xero
                 string accessToken = "";
                 string accessTokenUrl = "https://identity.xero.com/connect/token";
                 string clientId = Configuration.XeroClientId;
-                string clientSecret = Configuration.XeroClientSecret;                
+                string clientSecret = "UfpqpjhbZKLHKOhn_YDnZD9GDRSe8hAaPN2mr4hM_9jACAcg";
                 string grantTypeRefreshToken = "refresh_token";
                 string refreshToken = table.First().RefreshToken; //Reads the table XeroAccess to get the last refreshToken saved // If this azure function not used in 60 days this will expire. This is valid for 60 days, for us to have it correct we need to use the illuminance reusables console app called xero api tokens. There will be a step by step guide to generate this token. 
 

@@ -31,6 +31,7 @@ namespace FinanceIntegration
                     if (((IEnumerable<string>)new string[1] { "Update" }).Contains<string>(serviceBusMessage.MessageName))
                     {
                         log.Info(string.Format("DelegateMessage({0}): Processing {1} for {2}({3}).", (object)myQueueItem.MessageId, (object)serviceBusMessage.MessageName, (object)serviceBusMessage.PrimaryEntityName, (object)serviceBusMessage.PrimaryEntityId));
+
                         PurchaseOrder purchaseOrder = new PurchaseOrder(serviceBusMessage.PrimaryEntityId, serviceBusMessage.InitiatingUserId);
                         log.Info("DelegateMessage(" + myQueueItem.MessageId + "): PO Status is " + Enum.GetName(typeof(PurchaseOrder.StatusCodes), (object)purchaseOrder.PurchaseOrderStatus.Value) + ".");
                         if (purchaseOrder.PurchaseOrderStatus.Value == 390950001) // Awaiting Delivery - 390950000

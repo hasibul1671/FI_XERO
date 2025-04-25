@@ -11,10 +11,14 @@ using Microsoft.Xrm.Sdk;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
 using FinanceIntegration.Model;
-using FinanceIntegration.Model.Xero;
+using System.Collections.Generic;
+using System.Linq;
 using Xero.Api.Core.Model;
-using FinanceIntegration.Model.Dynamics;
+using System.Web.Http.Results;
 using Newtonsoft.Json.Linq;
+using System.Reflection;
+using Xero.Api.Infrastructure.ThirdParty.ServiceStack.Text;
+using System.Web.UI;
 
 
 namespace FinanceIntegration
@@ -25,82 +29,70 @@ namespace FinanceIntegration
         private const string PROJECT_URL = "https://api.xero.com/projects.xro/2.0/Projects";
         private const string PROJECT_URL_UPDATE = "https://api.xero.com/projects.xro/2.0/Projects/{0}"; // Placeholder for projectId
         private const string PROJECT_URL_GET = "https://api.xero.com/projects.xro/2.0/Projects/{0}"; // For getting a specific project
-        private const string TOKEN_URL = "https://identity.xero.com/connect/token";
         private const string TENANT_ID = "123da652-4c85-49fe-8128-c056bad09ada";
 
-        // 🔐 Hardcoded credentials and refresh token
-        private const string CLIENT_ID = "9E80E7F6C1AA4CA09050A5358BBE2347";
-        private const string CLIENT_SECRET = "UfpqpjhbZKLHKOhn_YDnZD9GDRSe8hAaPN2mr4hM_9jACAcg";
-        private const string REFRESH_TOKEN = "TwsGby7YGN1_3C8onTHorfOiILohQiAXwCWCgC4oX4s";
+        private static string TOKEN_URL = "https://identity.xero.com/connect/token";
+
+
         [FunctionName("SyncProject")]
-        //public static async Task Run(
-        //    [ServiceBusTrigger("projectqueue", AccessRights.Listen, Connection = "SBConnectionString")]
-        //    BrokeredMessage brokeredMessage,
-        //    TraceWriter log)
-
-       public static async Task Run([ServiceBusTrigger("projectqueue", AccessRights.Manage, Connection = "SBConnectionString")] BrokeredMessage brokeredMessage, TraceWriter log)
-
+        public static async Task Run(
+            [ServiceBusTrigger("projectqueue", AccessRights.Listen, Connection = "SBConnectionString")]
+             BrokeredMessage brokeredMessage,
+            TraceWriter log)
         {
-            string myQueueItem = brokeredMessage.ToString();
-            log.Info("XeroTrigger: Begin processing message.from FI-MOdel---------------->");
-            JObject jObject = JsonConvert.DeserializeObject<JObject>(myQueueItem);
-            Project project = jObject.ToObject<Project>();
-
-            try
-            {
-                string projectName = "Default Project";
-                string projectId = string.Empty;
-                string xeroProjectId = "000111222";
-                if (brokeredMessage.ContentType == "application/msbin1")
+            string projectName = "Default Project";
+            string projectId = string.Empty;
+            string xeroProjectId = "000111222";
+            log.Info("XeroTrigger: Begin processing message.from P98---------------->");
+                try
                 {
-                    try
+                    var executionContext = brokeredMessage.GetBody<RemoteExecutionContext>();
+                    log.Info($"Message details: Operation={executionContext.MessageName}, Entity={executionContext.PrimaryEntityName}");
+
+                    if (executionContext.InputParameters.Contains("Target") &&
+                        executionContext.InputParameters["Target"] is Entity target &&
+                        target.LogicalName == "illumina_project")
                     {
-                        var executionContext = brokeredMessage.GetBody<RemoteExecutionContext>();
-                        log.Info($"Message details: Operation={executionContext.MessageName}, Entity={executionContext.PrimaryEntityName}");
-
-                        if (executionContext.InputParameters.Contains("Target") &&
-                            executionContext.InputParameters["Target"] is Entity target &&
-                            target.LogicalName == "illumina_project")
+                        log.Info($"Project ID from Dynamics: {target.Id}");
+                        if (target.Contains("illumina_name"))
                         {
-                            log.Info($"Project ID from Dynamics: {target.Id}");
-                            if (target.Contains("illumina_name"))
-                            {
-                                projectName = target["illumina_name"].ToString();
-                                log.Info($"Project Name: {projectName}");
+                            projectName = target["illumina_name"].ToString();
+                            log.Info($"Project Name: {projectName}");
 
-                                if (target.Contains("illumina_projectid"))
-                                {
-                                    projectId = target["illumina_projectid"].ToString();
-                                    log.Info($"Project ID: {projectId}");
-                                }
-
-                            }
-                            foreach (var attribute in target.Attributes)
+                            if (target.Contains("illumina_projectid"))
                             {
-                                log.Info($"Attribute: {attribute.Key} = {attribute.Value}");
+                                projectId = target["illumina_projectid"].ToString();
+                                log.Info($"Project ID: {projectId}");
                             }
+
+                        }
+                        foreach (var attribute in target.Attributes)
+                        {
+                            log.Info($"Attribute: {attribute.Key} = {attribute.Value}");
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        log.Error($"Error deserializing RemoteExecutionContext: {ex.Message}", ex);
-                    }
-                }
-                else
-                {
-                    Stream stream = brokeredMessage.GetBody<Stream>();
-                    using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
-                    {
-                        string messageContent = await reader.ReadToEndAsync();
-                        log.Info($"Message content: {messageContent}");
-                    }
-                }
-
-                //var accessToken = await GetAccessTokenFromRefreshToken(log);
+                //Project project = new Project(target.Id.ToString(), executionContext.InitiatingUserId?.ToString());
                 string accessToken = "";
                 string tenantId = null;
 
-                string retrievedAccessToken = XeroClient.getAccessToken();
+
+                //string CLIENT_ID = Configuration.XeroClientId;
+                //string CLIENT_SECRET = Configuration.XeroClientSecret;
+                //string REFRESH_TOKEN = "dy7t4OQEse8l-Jhv3T3DJEW51DlG5esKgVdUEa17Sy4";
+
+
+                string CLIENT_ID = Environment.GetEnvironmentVariable("CLIENT_ID_XERO");
+                string CLIENT_SECRET = Environment.GetEnvironmentVariable("CLIENT_SECRET_XERO");
+                string REFRESH_TOKEN = "zr28JQzB8aZTTxqpzjL3v1tMsAPKlpkWyX_zdbAy9t8";
+
+
+                //string CLIENT_ID = "9E80E7F6C1AA4CA09050A5358BBE2347";
+                //string CLIENT_SECRET = "UfpqpjhbZKLHKOhn_YDnZD9GDRSe8hAaPN2mr4hM_9jACAcg";
+                //string REFRESH_TOKEN = "dy7t4OQEse8l-Jhv3T3DJEW51DlG5esKgVdUEa17Sy4";
+
+                var retrievedAccessToken = await GetAccessTokenFromRefreshToken(CLIENT_ID,CLIENT_SECRET,REFRESH_TOKEN, log);
+
+
                 if (retrievedAccessToken == null)
                 {
                     log.Info("The Access Token was not retrieved properly.");
@@ -111,41 +103,38 @@ namespace FinanceIntegration
                 }
 
                 log.Info($"------------------------accesstoken>{accessToken}");
-                tenantId = XeroClient.getOrganization(accessToken);
+
+                //tenantId = Model.Xero.XeroClient.getOrganization(accessToken);
                 if (tenantId == null)
                 {
                     log.Info("XeroClient : Error getting organization ID needed to post payloads as per Xero Api guide");
-
                 }
                 log.Info($"------------------------tenantId>{tenantId}");
 
                 var contactId = "960a7b40-1e7f-4362-a3b1-ede3bee7e3f5";
-
-                // Check if project exists and update or create as needed
-                await SyncXeroProject(project, tenantId, accessToken, contactId, projectName, projectId, log);
+                //Project project = null;
+                //await SyncXeroProject(project, tenantId, accessToken, contactId, projectName, projectId, log);
 
                 //UpdateCRMProject(project, xeroProjectId, ConvertToGuid(projectId), log);
 
             }
             catch (Exception ex)
-            {
-                log.Error($"Error processing project sync: {ex.Message}", ex);
-            }
+                {
+                    log.Error($"error--------------------> : {ex.Message}", ex);
+                }
+            
+
         }
 
-
-
-
-   
-
-
-
-        public static async Task<string> GetAccessTokenFromRefreshToken(TraceWriter log)
+        public static async Task<string> GetAccessTokenFromRefreshToken(string ClientID, string ClientSecret, string RefreshToken, TraceWriter log)
         {
+            AzureTableConfiguration table = new AzureTableConfiguration();
+            var firstRecord = table.FirstOrDefault();
+            RefreshToken = firstRecord.RefreshToken;
             var body = new StringContent(
-                $"grant_type=refresh_token&refresh_token={REFRESH_TOKEN}&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}",
-                Encoding.UTF8,
-                "application/x-www-form-urlencoded");
+              $"grant_type=refresh_token&refresh_token={RefreshToken}&client_id={ClientID}&client_secret={ClientSecret}",
+              Encoding.UTF8,
+              "application/x-www-form-urlencoded");
 
             var response = await httpClient.PostAsync(TOKEN_URL, body);
             var content = await response.Content.ReadAsStringAsync();
@@ -158,15 +147,25 @@ namespace FinanceIntegration
 
             dynamic tokenResponse = JsonConvert.DeserializeObject(content);
             string newAccessToken = tokenResponse.access_token;
+            log.Info($"tokenResponse----------------- {tokenResponse}");
+
+
+            string newRefreshToken = tokenResponse.refresh_token;
+            firstRecord.RefreshToken = newRefreshToken;
+            table.Update();
+            log.Info($"Successfully refreshed access token. {tokenResponse}");
             log.Info("Successfully refreshed access token.");
             return newAccessToken;
         }
 
-        public static async Task SyncXeroProject(Project project, string tenantId, string accessToken, string contactId, string projectName, string projectId, TraceWriter log)
+
+
+
+        public static async Task SyncXeroProject( string tenantId, string accessToken, string contactId, string projectName, string projectId, TraceWriter log)
         {
 
 
-            await CreateXeroProject(project, tenantId, accessToken, contactId, projectName, projectId, log);
+            await CreateXeroProject( tenantId, accessToken, contactId, projectName, projectId, log);
             //string existingXeroProjectId = GetXeroProjectId(projectId, log);
 
             string existingXeroProjectId = "DD";
@@ -177,7 +176,7 @@ namespace FinanceIntegration
             }
             else
             {
-                await CreateXeroProject( project, tenantId, accessToken, contactId, projectName, projectId, log);
+                await CreateXeroProject( tenantId, accessToken, contactId, projectName, projectId, log);
             }
         }
 
@@ -219,7 +218,7 @@ namespace FinanceIntegration
             }
         }
 
-        public static async Task CreateXeroProject(Project project, string tenantId, string accessToken, string contactId, string projectName, string projectId, TraceWriter log)
+        public static async Task CreateXeroProject( string tenantId, string accessToken, string contactId, string projectName, string projectId, TraceWriter log)
         {
             var projectJson = new
             {
@@ -230,8 +229,8 @@ namespace FinanceIntegration
             };
 
 
-            XeroProject returnProjectResponse = XeroClient.postProject(tenantId, accessToken, projectJson);
-            log.Info($"Project created successfully! returnProjectResponse: {returnProjectResponse}");
+            //XeroProject returnProjectResponse = XeroClient.postProject(tenantId, accessToken, projectJson);
+            //log.Info($"Project created successfully! returnProjectResponse: {returnProjectResponse}");
             //UpdateCRMProject(project, returnProjectResponse, log);
 
 
