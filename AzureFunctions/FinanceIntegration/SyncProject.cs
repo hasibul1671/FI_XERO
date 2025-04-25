@@ -19,6 +19,9 @@ using Newtonsoft.Json.Linq;
 using System.Reflection;
 using Xero.Api.Infrastructure.ThirdParty.ServiceStack.Text;
 using System.Web.UI;
+using FinanceIntegration.Model.Xero;
+using Xero.Api.Core.Model.Setup;
+using FinanceIntegration.Model.Dynamics;
 
 
 namespace FinanceIntegration
@@ -30,6 +33,7 @@ namespace FinanceIntegration
         private const string PROJECT_URL_UPDATE = "https://api.xero.com/projects.xro/2.0/Projects/{0}"; // Placeholder for projectId
         private const string PROJECT_URL_GET = "https://api.xero.com/projects.xro/2.0/Projects/{0}"; // For getting a specific project
         private const string TENANT_ID = "123da652-4c85-49fe-8128-c056bad09ada";
+        private const string CONTACT_ID= "960a7b40-1e7f-4362-a3b1-ede3bee7e3f5";
 
         private static string TOKEN_URL = "https://identity.xero.com/connect/token";
 
@@ -73,8 +77,6 @@ namespace FinanceIntegration
                     }
                 //Project project = new Project(target.Id.ToString(), executionContext.InitiatingUserId?.ToString());
                 string accessToken = "";
-                string tenantId = null;
-
 
                 //string CLIENT_ID = Configuration.XeroClientId;
                 //string CLIENT_SECRET = Configuration.XeroClientSecret;
@@ -91,8 +93,6 @@ namespace FinanceIntegration
                 //string REFRESH_TOKEN = "dy7t4OQEse8l-Jhv3T3DJEW51DlG5esKgVdUEa17Sy4";
 
                 var retrievedAccessToken = await GetAccessTokenFromRefreshToken(CLIENT_ID,CLIENT_SECRET,REFRESH_TOKEN, log);
-
-
                 if (retrievedAccessToken == null)
                 {
                     log.Info("The Access Token was not retrieved properly.");
@@ -102,18 +102,10 @@ namespace FinanceIntegration
                     accessToken = retrievedAccessToken;
                 }
 
-                log.Info($"------------------------accesstoken>{accessToken}");
-
-                //tenantId = Model.Xero.XeroClient.getOrganization(accessToken);
-                if (tenantId == null)
-                {
-                    log.Info("XeroClient : Error getting organization ID needed to post payloads as per Xero Api guide");
-                }
-                log.Info($"------------------------tenantId>{tenantId}");
-
-                var contactId = "960a7b40-1e7f-4362-a3b1-ede3bee7e3f5";
+               
+                
                 //Project project = null;
-                //await SyncXeroProject(project, tenantId, accessToken, contactId, projectName, projectId, log);
+                await SyncXeroProject(accessToken, projectName, projectId, log);
 
                 //UpdateCRMProject(project, xeroProjectId, ConvertToGuid(projectId), log);
 
@@ -147,13 +139,10 @@ namespace FinanceIntegration
 
             dynamic tokenResponse = JsonConvert.DeserializeObject(content);
             string newAccessToken = tokenResponse.access_token;
-            log.Info($"tokenResponse----------------- {tokenResponse}");
-
 
             string newRefreshToken = tokenResponse.refresh_token;
             firstRecord.RefreshToken = newRefreshToken;
             table.Update();
-            log.Info($"Successfully refreshed access token. {tokenResponse}");
             log.Info("Successfully refreshed access token.");
             return newAccessToken;
         }
@@ -161,32 +150,32 @@ namespace FinanceIntegration
 
 
 
-        public static async Task SyncXeroProject( string tenantId, string accessToken, string contactId, string projectName, string projectId, TraceWriter log)
+        public static async Task SyncXeroProject( string accessToken, string projectName, string projectId, TraceWriter log)
         {
 
 
-            await CreateXeroProject( tenantId, accessToken, contactId, projectName, projectId, log);
+            await CreateXeroProject(accessToken, projectName, projectId, log);
             //string existingXeroProjectId = GetXeroProjectId(projectId, log);
 
-            string existingXeroProjectId = "DD";
+            //string existingXeroProjectId = "DD";
 
-            if (!string.IsNullOrEmpty(existingXeroProjectId))
-            {
-                await UpdateXeroProject(accessToken, contactId, projectName, projectId, log);
-            }
-            else
-            {
-                await CreateXeroProject( tenantId, accessToken, contactId, projectName, projectId, log);
-            }
+            //if (!string.IsNullOrEmpty(existingXeroProjectId))
+            //{
+            //    await UpdateXeroProject(accessToken, projectName, projectId, log);
+            //}
+            //else
+            //{
+            //    CreateXeroProject(accessToken, projectName, projectId, log);
+            //}
         }
 
 
 
-        public static async Task UpdateXeroProject(string accessToken, string contactId, string projectName, string projectId, TraceWriter log)
+        public static async Task UpdateXeroProject(string accessToken, string projectName, string projectId, TraceWriter log)
         {
             var project = new
             {
-                contactId = contactId,
+                contactId = CONTACT_ID,
                 name = projectName,
                 estimateAmount = 15000.00,
                 deadlineUtc = DateTime.UtcNow.AddMonths(3).ToString("yyyy-MM-ddTHH:mm:ss")
@@ -218,40 +207,124 @@ namespace FinanceIntegration
             }
         }
 
-        public static async Task CreateXeroProject( string tenantId, string accessToken, string contactId, string projectName, string projectId, TraceWriter log)
+        public static async Task CreateXeroProject(string accessToken, string projectName, string projectId, TraceWriter log)
         {
-            var projectJson = new
+            var project = new
             {
-                contactId = contactId,
+                contactId = CONTACT_ID,
                 name = projectName,
                 deadlineUtc = DateTime.UtcNow.AddMonths(3).ToString("yyyy-MM-ddTHH:mm:ss"),
                 estimateAmount = 15000.00
             };
 
+            var content = new StringContent(
+                JsonConvert.SerializeObject(project),
+                Encoding.UTF8,
+                "application/json");
 
-            //XeroProject returnProjectResponse = XeroClient.postProject(tenantId, accessToken, projectJson);
-            //log.Info($"Project created successfully! returnProjectResponse: {returnProjectResponse}");
-            //UpdateCRMProject(project, returnProjectResponse, log);
+            using (var requestMessage = new HttpRequestMessage(HttpMethod.Post, PROJECT_URL))
+            {
+                requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                requestMessage.Headers.Add("Xero-Tenant-Id", TENANT_ID);
+                requestMessage.Content = content;
 
+                var response = await httpClient.SendAsync(requestMessage);
+                var responseContent = await response.Content.ReadAsStringAsync();
 
+                if (response.IsSuccessStatusCode)
+                {
+                    try
+                    {
+                        dynamic createdProject = JsonConvert.DeserializeObject(responseContent);
+                        if (createdProject != null && createdProject.projectId != null)
+                        {
+                            string xeroProjectId = createdProject.projectId.ToString();
+                             SaveXeroProjectIdToCrm(xeroProjectId, projectId,log);
+                            log.Info($"Project created successfully in XERO Response: {xeroProjectId}");
+
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Error($"Error extracting or saving Xero project ID: {ex.Message}", ex);
+                    }
+                }
+                else
+                {
+                    log.Error($"Failed to create project in XERO. Status: {response.StatusCode}, Response: {responseContent}");
+                    throw new Exception($"Failed to create Xero project: {response.StatusCode}");
+                }
+            }
+        }
+        //illumina_xeroprojectid
+
+        
+
+        public static void SaveXeroProjectIdToCrm(
+        string xeroProjectId,
+        string projectId,
+        TraceWriter log)
+        {
+            log.Info("Enter SAVEProjectID TO CRM - -------------->");
+            try
+            {
+                Guid CrmProjectId = ConvertToGuid(projectId);
+                log.Info("$Entered - Update Project in CRM GUID- {CrmProjectId}");
+                new WebProxyClient().Update(new Entity("illumina_project", CrmProjectId)
+                {
+                    ["crd27_xeroprojectid"] = (object)xeroProjectId
+                });
+                log.Info("Exiting - SaveXeroProjectIdToCrm");
+
+            }
+            catch (Exception ex)
+            {
+                // Log the top-level message
+                log.Error($"Error updating CRM Project Exception: {ex.Message}", ex);
+
+                // Unwrap aggregate exceptions
+                if (ex is AggregateException aggEx)
+                {
+                    foreach (var inner in aggEx.InnerExceptions)
+                    {
+                        log.Error($"Inner exception: {inner.Message}", inner);
+                    }
+                }
+
+                // Also log the base exception
+                log.Error($"Base exception: {ex.GetBaseException().Message}", ex.GetBaseException());
+            }
 
         }
 
 
 
-        //public static void UpdateCRMProject(
-        //FinanceIntegration.Model.Dynamics.Project project,
-        //FinanceIntegration.Model.Xero.XeroProject returnProjectResponse,
-        //TraceWriter log)
-        //{
-        //    log.Info("Entered - updatePurchaseOrder - Filling in CRM with created info");
 
-        //    new WebProxyClient().Update(new Entity("illumina_project", project.Id)
-        //    {
-        //        ["crd27_xeroprojectid"] = (object)new OptionSetValue(1000),
-        //    });
-        //    log.Info("Exiting - updatePurchaseOrder");
-        //}
+
+
+        private static Guid ConvertToGuid(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+            {
+                throw new ArgumentException("Project ID cannot be null or empty");
+            }
+
+            // Try to parse as-is
+            if (Guid.TryParse(input, out Guid result))
+            {
+                return result;
+            }
+
+            // Try cleaning up the input (removing whitespace, braces, etc.)
+            string cleaned = input.Trim().Replace("{", "").Replace("}", "").Replace("-", "");
+            if (Guid.TryParse(cleaned, out result))
+            {
+                return result;
+            }
+
+            throw new ArgumentException($"Invalid GUID format: {input}");
+        }
+
 
     }
 
