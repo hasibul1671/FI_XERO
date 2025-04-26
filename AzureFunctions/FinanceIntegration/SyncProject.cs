@@ -22,6 +22,7 @@ using System.Web.UI;
 using FinanceIntegration.Model.Xero;
 using Xero.Api.Core.Model.Setup;
 using FinanceIntegration.Model.Dynamics;
+using Microsoft.Xrm.Sdk.Query;
 
 
 namespace FinanceIntegration
@@ -44,15 +45,12 @@ namespace FinanceIntegration
              BrokeredMessage brokeredMessage,
             TraceWriter log)
         {
-            string projectName = "Default Project";
+            string projectName = "";
             string projectId = string.Empty;
             string xeroProjectId = "000111222";
-            log.Info("XeroTrigger: Begin processing message.from P98---------------->");
                 try
                 {
                     var executionContext = brokeredMessage.GetBody<RemoteExecutionContext>();
-                    log.Info($"Message details: Operation={executionContext.MessageName}, Entity={executionContext.PrimaryEntityName}");
-
                     if (executionContext.InputParameters.Contains("Target") &&
                         executionContext.InputParameters["Target"] is Entity target &&
                         target.LogicalName == "illumina_project")
@@ -75,23 +73,10 @@ namespace FinanceIntegration
                             log.Info($"Attribute: {attribute.Key} = {attribute.Value}");
                         }
                     }
-                //Project project = new Project(target.Id.ToString(), executionContext.InitiatingUserId?.ToString());
                 string accessToken = "";
-
-                //string CLIENT_ID = Configuration.XeroClientId;
-                //string CLIENT_SECRET = Configuration.XeroClientSecret;
-                //string REFRESH_TOKEN = "dy7t4OQEse8l-Jhv3T3DJEW51DlG5esKgVdUEa17Sy4";
-
-
                 string CLIENT_ID = Environment.GetEnvironmentVariable("CLIENT_ID_XERO");
                 string CLIENT_SECRET = Environment.GetEnvironmentVariable("CLIENT_SECRET_XERO");
                 string REFRESH_TOKEN = "zr28JQzB8aZTTxqpzjL3v1tMsAPKlpkWyX_zdbAy9t8";
-
-
-                //string CLIENT_ID = "9E80E7F6C1AA4CA09050A5358BBE2347";
-                //string CLIENT_SECRET = "UfpqpjhbZKLHKOhn_YDnZD9GDRSe8hAaPN2mr4hM_9jACAcg";
-                //string REFRESH_TOKEN = "dy7t4OQEse8l-Jhv3T3DJEW51DlG5esKgVdUEa17Sy4";
-
                 var retrievedAccessToken = await GetAccessTokenFromRefreshToken(CLIENT_ID,CLIENT_SECRET,REFRESH_TOKEN, log);
                 if (retrievedAccessToken == null)
                 {
@@ -101,21 +86,12 @@ namespace FinanceIntegration
                 {
                     accessToken = retrievedAccessToken;
                 }
-
-               
-                
-                //Project project = null;
                 await SyncXeroProject(accessToken, projectName, projectId, log);
-
-                //UpdateCRMProject(project, xeroProjectId, ConvertToGuid(projectId), log);
-
             }
             catch (Exception ex)
                 {
                     log.Error($"error--------------------> : {ex.Message}", ex);
                 }
-            
-
         }
 
         public static async Task<string> GetAccessTokenFromRefreshToken(string ClientID, string ClientSecret, string RefreshToken, TraceWriter log)
@@ -152,26 +128,20 @@ namespace FinanceIntegration
 
         public static async Task SyncXeroProject( string accessToken, string projectName, string projectId, TraceWriter log)
         {
-
-
-            await CreateXeroProject(accessToken, projectName, projectId, log);
-            //string existingXeroProjectId = GetXeroProjectId(projectId, log);
-
-            //string existingXeroProjectId = "DD";
-
-            //if (!string.IsNullOrEmpty(existingXeroProjectId))
-            //{
-            //    await UpdateXeroProject(accessToken, projectName, projectId, log);
-            //}
-            //else
-            //{
-            //    CreateXeroProject(accessToken, projectName, projectId, log);
-            //}
+            var (xeroProjectId, isProjectSync) = HandleIsProjectSync(projectId, log);
+            if (isProjectSync)
+            {
+                await UpdateXeroProject(accessToken, projectName, xeroProjectId, log);
+            }
+            else
+            {
+                _ = CreateXeroProject(accessToken, projectName, projectId, log);
+            }
         }
 
 
 
-        public static async Task UpdateXeroProject(string accessToken, string projectName, string projectId, TraceWriter log)
+        public static async Task UpdateXeroProject(string accessToken, string projectName, string xeroProjectId, TraceWriter log)
         {
             var project = new
             {
@@ -186,7 +156,7 @@ namespace FinanceIntegration
                 Encoding.UTF8,
                 "application/json");
 
-            using (var requestMessage = new HttpRequestMessage(HttpMethod.Put, string.Format(PROJECT_URL_UPDATE, projectId)))
+            using (var requestMessage = new HttpRequestMessage(HttpMethod.Put, string.Format(PROJECT_URL_UPDATE, xeroProjectId)))
             {
                 requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 requestMessage.Headers.Add("Xero-Tenant-Id", TENANT_ID);
@@ -256,20 +226,50 @@ namespace FinanceIntegration
                 }
             }
         }
-        //illumina_xeroprojectid
 
-        
+        public static (string xeroProjectId, bool isProjectSync) HandleIsProjectSync(string projectId, TraceWriter log)
+        {
+            string xeroProjectId = null;
+            bool isProjectSync = false;
+
+            try
+            {
+                Guid crmProjectId = ConvertToGuid(projectId);
+                log.Info($"Retrieving CRM project with ID: {crmProjectId}");
+
+                Entity projectEntity = new WebProxyClient().Retrieve("illumina_project", crmProjectId, new ColumnSet("crd27_xeroprojectid"));
+
+                if (projectEntity != null && projectEntity.Contains("crd27_xeroprojectid"))
+                {
+                    xeroProjectId = projectEntity.GetAttributeValue<string>("crd27_xeroprojectid");
+                    isProjectSync = !string.IsNullOrEmpty(xeroProjectId);
+                    log.Info($"Xero Project ID found: {xeroProjectId}, Project is synced: {isProjectSync}");
+                }
+                else
+                {
+                    log.Info("Xero Project ID not found. Project is not synced.");
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Error retrieving project from CRM: {ex.Message}", ex);
+            }
+
+            return (xeroProjectId, isProjectSync);
+        }
+
+
+
 
         public static void SaveXeroProjectIdToCrm(
         string xeroProjectId,
         string projectId,
         TraceWriter log)
         {
-            log.Info("Enter SAVEProjectID TO CRM - -------------->");
+            log.Info("Enter SaveXeroProjectIdToCrm Method-------------->");
             try
             {
                 Guid CrmProjectId = ConvertToGuid(projectId);
-                log.Info("$Entered - Update Project in CRM GUID- {CrmProjectId}");
                 new WebProxyClient().Update(new Entity("illumina_project", CrmProjectId)
                 {
                     ["crd27_xeroprojectid"] = (object)xeroProjectId
@@ -279,10 +279,8 @@ namespace FinanceIntegration
             }
             catch (Exception ex)
             {
-                // Log the top-level message
                 log.Error($"Error updating CRM Project Exception: {ex.Message}", ex);
 
-                // Unwrap aggregate exceptions
                 if (ex is AggregateException aggEx)
                 {
                     foreach (var inner in aggEx.InnerExceptions)
@@ -290,16 +288,10 @@ namespace FinanceIntegration
                         log.Error($"Inner exception: {inner.Message}", inner);
                     }
                 }
-
-                // Also log the base exception
                 log.Error($"Base exception: {ex.GetBaseException().Message}", ex.GetBaseException());
             }
 
         }
-
-
-
-
 
 
         private static Guid ConvertToGuid(string input)
@@ -308,14 +300,10 @@ namespace FinanceIntegration
             {
                 throw new ArgumentException("Project ID cannot be null or empty");
             }
-
-            // Try to parse as-is
             if (Guid.TryParse(input, out Guid result))
             {
                 return result;
             }
-
-            // Try cleaning up the input (removing whitespace, braces, etc.)
             string cleaned = input.Trim().Replace("{", "").Replace("}", "").Replace("-", "");
             if (Guid.TryParse(cleaned, out result))
             {
