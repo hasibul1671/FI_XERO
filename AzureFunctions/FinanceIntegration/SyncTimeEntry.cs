@@ -218,7 +218,7 @@ namespace FinanceIntegration
                     {
                         log.Error($"Error extracting or saving Xero project ID: {ex.Message}", ex);
                     }
-                }
+                } 
                 else
                 {
                     log.Error($"Failed to create project in XERO. Status: {response.StatusCode}, Response: {responseContent}");
