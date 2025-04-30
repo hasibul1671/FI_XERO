@@ -8,20 +8,26 @@ using FinanceIntegration.Model.Dynamics;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.ServiceBus.Messaging;
+using System.Threading.Tasks;
 
 namespace FinanceIntegration
 {
     public static class PurchaseOrderGeneration
     {
+
         [FunctionName("PurchaseOrderGeneration")]
-        public static void Run([ServiceBusTrigger("purchaseorder", AccessRights.Listen, Connection = "SBConnectionString")] string poMessage, TraceWriter log)
-        {
-            log.Info("PurchaseOrderGeneration: Begin processing message.");
-            if (poMessage != null)
-                PurchaseOrder.Process(poMessage, log);
-            else
-                log.Error("PurchaseOrderGeneration: Empty Message.");
-            log.Info("PurchaseOrderGeneration queue trigger function processed message: " + poMessage);
-        }
+        public static void  Run([ServiceBusTrigger("purchaseorder", AccessRights.Listen, Connection = "SBConnectionString")]
+             BrokeredMessage brokeredMessage,
+          TraceWriter log)
+            {
+                log.Info("PurchaseOrderGeneration: Begin processing message......");
+                if (brokeredMessage != null)
+                {
+                PurchaseOrder.Process(brokeredMessage, log);
+                }
+                else
+                    log.Error("PurchaseOrderGeneration: Empty Message.");
+                log.Info("PurchaseOrderGeneration queue trigger function processed message: " + brokeredMessage);
+            }
     }
 }

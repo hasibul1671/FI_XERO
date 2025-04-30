@@ -6,16 +6,19 @@
 
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Crm.Sdk.Messages;
+using Microsoft.ServiceBus.Messaging;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IdentityModel.Metadata;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -81,82 +84,7 @@ namespace FinanceIntegration.Model.Dynamics
             this.XeroId = (string)entity.Attributes["illumina_xeroid"];
         }
 
-        public static void Process(string poMessage, TraceWriter log)
-        {
-            PurchaseOrder po = (PurchaseOrder)null;
-            try
-            {
-                JObject jObject = JsonConvert.DeserializeObject<JObject>(poMessage);
-                jObject.FixEntityReference("illumina_supplierid");
-                jObject.FixEntityReference("illumina_fundapplicationid");
-                jObject.FixEntityReference("illumina_xerotrackingcodeid");
-                po = jObject.ToObject<PurchaseOrder>();
-
-                //Gets the document template name from the AzureFunction >> Configuration     
-                string query = $"documenttemplates?$filter=name eq '{Configuration.DocumentTemplateName}'";
-                JObject responseJson = HttpClientRequests("Get", query, null);
-                string templateId = "";
-
-                try
-                {
-                    templateId = responseJson["value"][0]["documenttemplateid"].Value<string>();
-                }
-                catch (Exception)
-                {
-                    throw new InvalidPluginExecutionException($"FinanceIntegration Azure Function Error: Purchase Order({po.Id}): Could not find the template from azure configuration.");
-                }
-
-                query = "ExportPdfDocument";
-
-                PdfPayload payload = new PdfPayload
-                {
-                    EntityTypeCode = 10052,
-                    SelectedTemplate = new PdfTemplatePayload
-                    {
-                        ODataType = "Microsoft.Dynamics.CRM.documenttemplate",
-                        documenttemplateid = $"{templateId}"
-                    },
-                    SelectedRecords = "[\"" + po.Id.ToString() + "\"]"
-
-                };
-
-                //Requests the Purchase Order PDF from CRM record (Must have sales installed and export of pdf activated in the Sales HUB configuration)
-                string payloadJson = JsonConvert.SerializeObject(payload);
-                responseJson = HttpClientRequests("Post", query, payloadJson);
-
-                byte[] pdf = null;
-                try
-                {
-                    string pdfBase64 = responseJson["PdfFile"].Value<string>();
-                    pdf = Convert.FromBase64String(pdfBase64);
-                }
-                catch (Exception)
-                {
-
-                    throw new InvalidPluginExecutionException($"FinanceIntegration Azure Function Error: Purchase Order({po.Id}): Could not be converted to Byte or was downloaded incorrectly.");
-                }
-
-                if (pdf.Length == 0)
-                    throw new InvalidPluginExecutionException(string.Format("Purchase Order({0}): Could not convert PO document.", (object)po.Id));
-                if (PurchaseOrder.SendEmail(po, pdf, log))
-                {
-                    log.Info(string.Format("Purchase Order({0}): Sent successfully.", (object)po.Id));
-                    PurchaseOrder.UpdatePOStatus(po, new OptionSetValue(390950002));
-                    PurchaseOrder.Success = true;
-                }
-                else
-                {
-                    log.Info(string.Format("Purchase Order({0}): Sending failed.", (object)po.Id));
-                    PurchaseOrder.UpdatePOStatus(po, new OptionSetValue(390950005));
-                }
-            }
-            catch (Exception ex)
-            {
-                if (!PurchaseOrder.Success)
-                    PurchaseOrder.SendFailureEmail(po, log);
-                PurchaseOrder.UpdatePOStatus(po, new OptionSetValue(390950005));
-            }
-        }
+   
 
         private static void SendFailureEmail(PurchaseOrder po, TraceWriter log)
         {
@@ -364,6 +292,145 @@ namespace FinanceIntegration.Model.Dynamics
             return responseJson;
         }
 
+
+
+        public static void Process(BrokeredMessage poMessage, TraceWriter log)
+            {
+            PurchaseOrder po = null;
+            byte[] pdf = null;
+            string poId = null;
+
+            try
+                {
+                log.Info("enter process PO --------------->");
+
+                var executionContext = poMessage.GetBody<RemoteExecutionContext>();
+
+                if (executionContext.InputParameters.Contains("Target") &&
+                      executionContext.InputParameters["Target"] is Entity target &&
+                         target.LogicalName == "illumina_purchaseorder")
+                    {
+                    if (target.Contains("illumina_purchaseorderid"))
+                        {
+                        poId = target["illumina_purchaseorderid"].ToString();
+                        }
+                    foreach (var attribute in target.Attributes)
+                        {
+                        log.Info($"Attribute: {attribute.Key} = {attribute.Value}");
+                        }
+                    }
+                Guid poCRMId = ConvertToGuid(poId);
+                log.Info($"poCRMId ---- {poCRMId}");
+
+
+                Entity poDocx = GetNoteByAnnotationId(poCRMId,log);
+                log.Info($"poDocx ---- {poDocx != null}");
+                if (poDocx == null)
+                    throw new InvalidPluginExecutionException($"Purchase Order({poCRMId}): Could not find PO document.");
+
+               
+                // Step 2: Convert the docx to PDF - Now po.Name should be available
+                pdf = ConvertToPDF(poDocx, po.Name, log);
+
+                if (pdf == null || pdf.Length == 0)
+                    throw new InvalidPluginExecutionException($"Purchase Order({poCRMId}): Could not convert PO document.");
+
+                // Step 3: Send the Email
+                if (SendEmail(po, pdf, log))
+                    {
+                    log.Info($"Purchase Order({po.Id}): Sent successfully.");
+
+                    UpdatePOStatus(po, new OptionSetValue(390950002));  // Sent to Supplier
+                    Success = true;
+                    }
+                else
+                    {
+                    log.Info($"Purchase Order({po.Id}): Sending failed.");
+
+                    UpdatePOStatus(po, new OptionSetValue(390950005));  // Send to Supplier Failed
+                    }
+                }
+            catch (Exception ex)
+                {
+                if (po != null && !Success)
+                    {
+                    SendFailureEmail(po, log);
+                    }
+
+                if (po != null)
+                    {
+                    UpdatePOStatus(po, new OptionSetValue(390950005));  // Send to Supplier Failed
+                    }
+
+                log.Error($"Error processing Purchase Order", ex);
+                }
+            }
+
+
+
+        private static Entity GetNoteByAnnotationId(Guid id,TraceWriter log)
+            {
+            try
+                {
+                WebProxyClient orgService = new WebProxyClient();
+                DataCollection<Entity> notes = orgService.RetrieveMultiple(new QueryExpression("annotation")
+                    {
+                    ColumnSet = new ColumnSet("isdocument", "filename", "documentbody", "annotationid", "createdon"),
+                    Criteria = new FilterExpression(LogicalOperator.And)
+                        {
+                        Conditions = {
+						new ConditionExpression("objectid", ConditionOperator.Equal, id),
+                        new ConditionExpression("isdocument", ConditionOperator.Equal, true)	// Documents only
+					}
+                        },
+                    Orders = {
+                    new OrderExpression("createdon", OrderType.Descending)
+                }
+                    }).Entities;
+                if (notes.Count > 0)
+                    return notes.FirstOrDefault();
+                else
+                    {
+                    log.Info($"<li>Could not get the word template from the PO record in CRM.</li>");
+
+                    return null;
+                    }
+                }
+            catch (Exception e)
+                {
+                log.Error($"<li>Could not get the word template from the PO record in CRM.</li>");
+
+                throw new Exception(e.ToString());
+                }
+            }
+
+
+        private static byte[] ConvertToPDF(Entity poDocx, string name, TraceWriter log)
+            {
+            using (HttpClient client = new HttpClient())
+                {
+                ConverterPayload converterPayload = new ConverterPayload
+                    {
+                    FileName = $"{name}.docx",
+                    Content = poDocx.GetAttributeValue<string>("documentbody"),
+                    };
+
+                HttpResponseMessage resp = client.PostAsJsonAsync(Environment.GetEnvironmentVariable("pdfConverterUri"), converterPayload).Result;
+
+                if (resp.StatusCode == HttpStatusCode.OK)
+                    {
+                    return resp.Content.ReadAsByteArrayAsync().Result;
+                    }
+                else
+                    {
+
+                    FailureDescription.Add($"<li>Could not convert Word Template to PDF.</li>");
+                    return Array.Empty<byte>();
+                    }
+                }
+            }
+
+
         public class PdfPayload
         {
             [JsonProperty("EntityTypeCode")]
@@ -384,6 +451,26 @@ namespace FinanceIntegration.Model.Dynamics
             [JsonProperty("documenttemplateid")]
             public string documenttemplateid { get; set; }
         }
+
+
+        private static Guid ConvertToGuid(string input)
+            {
+            if (string.IsNullOrEmpty(input))
+                {
+                throw new ArgumentException("Project ID cannot be null or empty");
+                }
+            if (Guid.TryParse(input, out Guid result))
+                {
+                return result;
+                }
+            string cleaned = input.Trim().Replace("{", "").Replace("}", "").Replace("-", "");
+            if (Guid.TryParse(cleaned, out result))
+                {
+                return result;
+                }
+
+            throw new ArgumentException($"Invalid GUID format: {input}");
+            }
 
 
         public enum StatusCodes

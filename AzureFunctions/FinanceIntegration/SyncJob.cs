@@ -340,8 +340,6 @@ namespace FinanceIntegration
 
             throw new ArgumentException($"Invalid GUID format: {input}");
             }
-
-
         }
     }
 
